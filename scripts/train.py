@@ -36,8 +36,8 @@ dataset_name = '1950_2019'
 modal = 'gph'
 pi_pre = True
 pi_pre_epoch = 5
-output_dir = 'model_save/nu2.15e_burgers0.12'
-visdom_name = 'G_loss&D_loss_model_save/nu2.15e_burgers0.12'
+output_dir = 'model_save/models'
+visdom_name = 'G_loss&D_loss_model_save/models'
 os.makedirs(output_dir,exist_ok=True)
 # print and log
 FORMAT = '[%(levelname)s: %(filename)s: %(lineno)4d]: %(message)s'
@@ -454,10 +454,6 @@ def main(args):
                         small_checkpoint[k] = v
                 torch.save(small_checkpoint, checkpoint_path)
                 logger.info('Done.')
-                # 调节学习率
-                # aj_epoch = t//(args.checkpoint_every*3)+1
-                # adjust_learning_rate(optimizer_g, aj_epoch, args.g_learning_rate)
-                # adjust_learning_rate(optimizer_d, aj_epoch, args.d_learning_rate)
 
             t += 1
             if t >= args.num_iterations:
@@ -479,6 +475,7 @@ def net_chooser_step(
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
      loss_mask, seq_start_end, obs_traj_Me, pred_traj_gt_Me, obs_traj_rel_Me, pred_traj_gt_rel_Me,
      obs_date_mask, pred_date_mask, image_obs_u, image_obs_v, image_pre_u, image_pre_v, image_obs, image_pre) = batch
+    # image_obs [b,c,len,h,w]
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
 
@@ -487,16 +484,8 @@ def net_chooser_step(
     obs_traj_rel = torch.cat([obs_traj_rel, obs_traj_rel_Me], dim=2)
     pred_traj_gt_rel = torch.cat([pred_traj_gt_rel, pred_traj_gt_rel_Me], dim=2)
 
-    generator_out, image_out, image_out_merge, net_chooser_weights, _ = generator(obs_traj, obs_traj_rel, seq_start_end,
-                                                                 image_obs, image_obs_u, image_obs_v, num_samples=1,
-                                                                 all_g_out=True)
-    # generator_out  [pre_len,num_g or num_sample,b,4]
-    # net_chooser_weights [b,num_g or num_sample]
-    # Log the average weighting for the generators
-
     pred_traj_fake_rel = generator_out
     gen_out = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
-
 
     if weighting_target == "l2":
         # Shape (num_samples, num_gens, b)
@@ -537,7 +526,6 @@ def net_chooser_step(
 
     losses["train_net_chooser_loss"]=loss.item()
 
-
     optimizer_g.zero_grad()
     loss.backward()
 
@@ -553,10 +541,12 @@ def discriminator_step(
 ):
 
     mse = nn.MSELoss()
+    
     batch = [tensor.cuda() for tensor in batch[:-1]]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
      loss_mask, seq_start_end,obs_traj_Me, pred_traj_gt_Me, obs_traj_rel_Me, pred_traj_gt_rel_Me,
      obs_date_mask, pred_date_mask,image_obs_u, image_obs_v, image_pre_u, image_pre_v,image_obs,image_pre) = batch
+    
     # image_obs [b,c,len,h,w]
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
@@ -566,6 +556,7 @@ def discriminator_step(
     obs_traj_rel = torch.cat([obs_traj_rel, obs_traj_rel_Me], dim=2)
     pred_traj_gt_rel = torch.cat([pred_traj_gt_rel, pred_traj_gt_rel_Me], dim=2)
 
+                                                                     num_samples=1, all_g_out=False)
     generator_out, image_out, image_out_merge, _, _ = generator(obs_traj, obs_traj_rel, seq_start_end,
                                                image_obs,
                                                image_obs_u, image_obs_v,
@@ -584,7 +575,6 @@ def discriminator_step(
     img_real_v = torch.cat([image_obs_v, image_pre_v], dim=2)
     img_real_merge = torch.cat([img_real_u, img_real_v], dim=1)
 
-
     img_fake = image_out
     img_fake_merge = image_out_merge
 
@@ -595,11 +585,8 @@ def discriminator_step(
     image_loss = mse(img_real[:,:,1:],image_out[:,:,1:])
     image_loss_merge = mse(img_real_merge[:,:,1:], img_fake_merge[:,:,1:])
 
-    # add burgers loss for u and v
     burgersloss = burgers_loss(img_real_merge, img_fake_merge)
-
-    image_loss_total = image_loss + image_loss_merge + 0.12 * burgersloss
-
+    image_loss_total = image_loss + image_loss_merge + burgersloss * 0.5
     data_loss = d_loss_fn(scores_real, scores_fake)
 
     losses['D_data_loss'] = data_loss.item()
@@ -610,10 +597,6 @@ def discriminator_step(
 
     optimizer_d.zero_grad()
     loss.backward()
-
-    # for name, param in discriminator.named_parameters():
-    #     if param.grad is not None:
-    #         print(f"Gradients for {name}: {param.grad.norm()}")
 
     if args.clipping_threshold_d > 0:
         nn.utils.clip_grad_norm_(discriminator.parameters(),
@@ -679,7 +662,6 @@ def generator_step(
     img_real_v = torch.cat([image_obs_v, image_pre_v], dim=2)
     img_real_merge = torch.cat([img_real_u, img_real_v], dim=1)
 
-
     img_fake = image_out #[b,1,12,h,w]
     img_fake_merge = image_out_merge
 
@@ -688,14 +670,13 @@ def generator_step(
 
     image_loss = mse(img_real, img_fake)
     image_loss_merge = mse(img_real_merge, img_fake_merge)
-
-    # add burgers loss for u and v
+   
     burgersloss = burgers_loss(img_real_merge, img_fake_merge)
-
-    image_loss_total = image_loss + image_loss_merge + 0.12 * burgersloss
+    image_loss_total = image_loss + image_loss_merge + burgersloss * 0.5
 
     loss += discriminator_loss
     losses['G_discriminator_loss'] = discriminator_loss.item()
+    #loss += image_loss
     loss += image_loss_total
     losses['G_total_loss'] = loss.item()
 
@@ -825,7 +806,6 @@ def check_accuracy(
 
     generator.train()
     return metrics
-
 
 def cal_l2_losses(
     pred_traj_gt, pred_traj_gt_rel, pred_traj_fake, pred_traj_fake_rel,
