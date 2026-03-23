@@ -84,7 +84,6 @@ class OutConv(nn.Module):
     def __init__(self, out_channel, kernel_size, stride, padding):
         super(OutConv, self).__init__()
 
-        # 对 x6 使用一个 ConvTranspose3d 调整到 (4, 64, 64)
         self.convtranspose_x6 = nn.Sequential(
             nn.ConvTranspose3d(64, 16, kernel_size=[1, 5, 5],
                                stride=[1, 2, 2], padding=[0, 2, 2], bias=True),
@@ -109,7 +108,8 @@ class OutConv(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-        # 对 x7 使用一个 ConvTranspose3d 调整到 (8, 64, 64)
+
+        
         self.convtranspose_x7 = nn.Sequential(
             nn.ConvTranspose3d(32, 16, kernel_size=[1, 3, 3],
                                stride=[1, 2, 2], padding=[0, 1, 1], output_padding=[0, 1, 1], bias=True),
@@ -140,7 +140,7 @@ class OutConv(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-        # 最后的卷积操作
+        
         self.conv = nn.Sequential(
             nn.Conv3d(16, out_channel, kernel_size=kernel_size, stride=stride, padding=padding),
             nn.BatchNorm3d(out_channel),
@@ -153,20 +153,18 @@ class OutConv(nn.Module):
 
     def forward(self, x6, x7, x8, x9):
 
-        # 分别处理 x6, x7, x8，使用额外的 ConvTranspose3d 和 Conv3d 调整维度
-        x6 = self.convtranspose_x6(x6)  # 调整为 (4, 64, 64)
+        x6 = self.convtranspose_x6(x6)  
         x6 = self.convtranspose_x6_2(x6)
         x6 = self.convtranspose_x6_3(x6)
-        x6 = self.conv3d_x6(x6)  # 通过 Conv3d 进一步处理
+        x6 = self.conv3d_x6(x6)  
 
-        x7 = self.convtranspose_x7(x7)  # 调整为 (8, 64, 64)
-        x7 = self.convtranspose_x7_2(x7)  # 调整为 (8, 64, 64)
-        x7 = self.conv3d_x7(x7)  # 通过 Conv3d 进一步处理
+        x7 = self.convtranspose_x7(x7)  
+        x7 = self.convtranspose_x7_2(x7) 
+        x7 = self.conv3d_x7(x7)  
 
-        x8 = self.convtranspose_x8(x8)  # 调整为 (8, 64, 64)
-        x8 = self.conv3d_x8(x8)  # 通过 Conv3d 进一步处理
+        x8 = self.convtranspose_x8(x8) 
+        x8 = self.conv3d_x8(x8)  
 
-        # 在维度 2（depth 维度）上拼接
         x_last = torch.cat([x6, x7, x8, x9], dim=2)
         # print("x_last:", x_last.shape)
         # x_last = self.out(x_last)
