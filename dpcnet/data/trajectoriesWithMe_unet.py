@@ -56,7 +56,6 @@ def seq_collate(data):
 
 
 
-
 def read_file(_path, delim='\t'):
     data = []
     add = []
@@ -189,10 +188,6 @@ class TrajectoryDataset(Dataset):
                     curr_loss_mask[_idx, pad_front:pad_end] = 1
                     num_peds_considered += 1
 
-                # if num_peds_considered > min_ped: 源码---
-                # - min_ped: Minimum number of pedestrians that should be in a seqeunce
-                # 最小的行人个数，1的话  应该是至少有一个  但是源码缺大于1，有点问题。。。
-                # 但是因为台风基本上同个时间都只有一个，所以我改成>=1
                 if num_peds_considered >= min_ped:
                     non_linear_ped += _non_linear_ped
                     num_peds_in_seq.append(num_peds_considered)
@@ -257,14 +252,10 @@ class TrajectoryDataset(Dataset):
         return np.array(data_embed).transpose(1, 0)[np.newaxis, :, :]
 
     def transforms_gph(self,img):
-        # mean=np.array([111.2762205937308])
-        # std = np.array([59.03717801611257])
-        # return (img-mean)/std
         modal_range = {'gph': (44490.578125,58768.4486860389),
                        '10v': (-48.2635498046875, 53.091079711914055),
                        '10u': (-49.08894348144531, 47.56512451171875)
                       }
-
 
         all_min,all_max = modal_range[self.modal_name]
         img = (img-all_min)/(all_max-all_min)
@@ -274,18 +265,9 @@ class TrajectoryDataset(Dataset):
 
 
     def transforms_u(self,img):
-        # mean=np.array([111.2762205937308])
-        # std = np.array([59.03717801611257])
-        # return (img-mean)/std
         modal_range = {'10u': (-42.69940185546875, 42.42747497558593)}
 
         all_min,all_max = modal_range['10u']
-        # if all_max_u == all_min_u:
-        #     img = np.ones_like(img) * 0.5
-        #     return img
-        # img = (img-all_min_u)/(all_max_u-all_min_u)
-        # img[img>1] = 1
-        # img[img<0] = 0
         denominator = all_max - all_min
         if abs(denominator) < 1e-5:
             denominator = 1e-5  # 防止除以零
@@ -295,19 +277,9 @@ class TrajectoryDataset(Dataset):
 
 
     def transforms_v(self,img):
-        # mean=np.array([111.2762205937308])
-        # std = np.array([59.03717801611257])
-        # return (img-mean)/std
-        #modal_range = {'10v': (-48.2635498046875, 53.091079711914055)}
         modal_range = {'10v': (-39.61431884765626, 41.31439208984375)}
 
         all_min,all_max = modal_range['10v']
-        # if all_max_v == all_min_v:
-        #     img = np.ones_like(img) * 0.5
-        #     return img
-        # img = (img-all_min_v)/(all_max_v-all_min_v)
-        # img[img>1] = 1
-        # img[img<0] = 0
         denominator = all_max - all_min
         if abs(denominator) < 1e-5:
             denominator = 1e-5  # 防止除以零
@@ -354,11 +326,6 @@ class TrajectoryDataset(Dataset):
         year = tyid_dic['old'][0][2:6]
         tydate = tyid_dic['tydate']
 
-        # env_root = r'D:\experiment\MGTCF\AAAI_data\env_data\norm'
-        # env_date = tyid_dic['new'][0]
-        # env_path = os.path.join(env_root,year,tyname,env_date+'.npy')
-        # env_data = np.load(env_path,allow_pickle=True).item()
-
         modal_path = {'gph':r'D:\experiment\DPCD-Net\datasets\geopotentialp',
                       }
         data_dir = os.path.join(modal_path[self.modal_name], year, tyname)
@@ -387,7 +354,6 @@ class TrajectoryDataset(Dataset):
         tydate = tyid_dic['tydate']
 
         data_dir_u = os.path.join(r'D:\experiment\uv_data\u', year, tyname)
-        #data_dir_u = os.path.join(r'/root/autodl-tmp/uv_data/u', year, tyname)
 
         image_obs_u = []
         image_pre_u = []
@@ -414,7 +380,6 @@ class TrajectoryDataset(Dataset):
 
         data_dir_v = os.path.join(r'D:\experiment\uv_data\v', year, tyname)
        
-
         image_obs_v = []
         image_pre_v = []
         obs_list = tydate[:self.obs_len]
@@ -457,26 +422,16 @@ class TrajectoryDataset(Dataset):
 
 
 if __name__ == '__main__':
-    #path = r'D:\experiment\MGTCF\datasets\1950_2019\test'
-    path = r'D:\experiment\MGTCF-slstm-edit\datasets\1950_2019\test'
+    path = r'D:\experiment\DPCD-Net\datasets\1950_2019\test'
     dset = TrajectoryDataset(path,obs_len=8,pred_len=4,skip=1,delim='\t')
     loader = DataLoader(dset,batch_size=16,shuffle=True,num_workers=4,collate_fn=seq_collate)
  
     for batch in loader:
-        # pass
-        
-        #print(batch[-1])
+
         u_image_obs = batch[-7]
         v_image_obs = batch[-6]
         u_image_pre = batch[-5]
         v_image_pre = batch[-4]
         image_obs = batch[-3]
         image_pre = batch[-2]
-        # env_data = batch[-2]
-        # print(gph_image_obs.shape)
-        # print(gph_image_pre.shape)
-        #print(u_image_obs.shape)
-        #print(v_image_obs.shape)
-        #print(u_image_pre.shape)
-        #print(v_image_pre.shape)
-
+  
