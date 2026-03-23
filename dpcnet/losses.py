@@ -9,86 +9,77 @@ import torch.nn.functional as F
 import torch
 import torch.nn.functional as F
 
-# burgers -- 计算空间导数
-kernel_x = torch.tensor([[[[[-1, 0, 1]]]]], dtype=torch.float32).expand(1, 1, 1, 1, 3) / 2
-kernel_y = torch.tensor([[[[[-1], [0], [1]]]]], dtype=torch.float32).expand(1, 1, 1, 3, 1) / 2
-kernel_xx = torch.tensor([[[[[1, -2, 1]]]]], dtype=torch.float32).expand(1, 1, 1, 1, 3)
-kernel_yy = torch.tensor([[[[[1], [-2], [1]]]]], dtype=torch.float32).expand(1, 1, 1, 3, 1)
+def get_derivative_kernels(dx, dy):
+    
+    # 一阶导数核
+    kernel_x = torch.tensor([[[[[-1, 0, 1]]]]], dtype=torch.float32).expand(1, 1, 1, 1, 3) / (2 * dx)
+    kernel_y = torch.tensor([[[[[-1], [0], [1]]]]], dtype=torch.float32).expand(1, 1, 1, 3, 1) / (2 * dy)
+
+    # 二阶导数核
+    kernel_xx = torch.tensor([[[[[1, -2, 1]]]]], dtype=torch.float32).expand(1, 1, 1, 1, 3) / (dx ** 2)
+    kernel_yy = torch.tensor([[[[[1], [-2], [1]]]]], dtype=torch.float32).expand(1, 1, 1, 3, 1) / (dy ** 2)
+
+    return kernel_x, kernel_y, kernel_xx, kernel_yy
 
 
-
-def compute_burgers_residual(u, v, nu):
+def compute_burgers_residual(u, v, dx=27000, dy=27000, nu=250000.0):
     """
-    使用卷积来高效计算 u 和 v 的 Burgers 方程残差，适用于大数据量的处理
-    u, v: 输入的风速分量差值
-    nu: 运动粘度
+    稳态Burgers方程残差计算（不包含时间导数）
+
+    方程形式：
+    u∂u/∂x + v∂u/∂y = ν(∂²u/∂x² + ∂²u/∂y²)
+    u∂v/∂x + v∂v/∂y = ν(∂²v/∂x² + ∂²v/∂y²)
+
+    Args:
+        u, v: 风速分量 [batch, channel, time, height, width]
+        dx, dy: 网格间距（米）
+        nu: 涡动粘度系数（m²/s）
     """
-    # 使用 conv3d 进行一阶和二阶导数的卷积计算
-    u_x = F.conv3d(u, kernel_x.to(u.device), padding=(0, 0, 1))
-    u_y = F.conv3d(u, kernel_y.to(u.device), padding=(0, 1, 0))
-    v_x = F.conv3d(v, kernel_x.to(u.device), padding=(0, 0, 1))
-    v_y = F.conv3d(v, kernel_y.to(u.device), padding=(0, 1, 0))
 
-    u_xx = F.conv3d(u, kernel_xx.to(u.device), padding=(0, 0, 1))
-    u_yy = F.conv3d(u, kernel_yy.to(u.device), padding=(0, 1, 0))
-    v_xx = F.conv3d(v, kernel_xx.to(u.device), padding=(0, 0, 1))
-    v_yy = F.conv3d(v, kernel_yy.to(u.device), padding=(0, 1, 0))
+    
+    kernel_x, kernel_y, kernel_xx, kernel_yy = get_derivative_kernels(dx, dy)
 
-    # 计算 Burgers 方程的残差
+    device = u.device
+    kernel_x = kernel_x.to(device)
+    kernel_y = kernel_y.to(device)
+    kernel_xx = kernel_xx.to(device)
+    kernel_yy = kernel_yy.to(device)
+
+    # 计算一阶空间导数
+    u_x = F.conv3d(u, kernel_x, padding=(0, 0, 1))
+    u_y = F.conv3d(u, kernel_y, padding=(0, 1, 0))
+    v_x = F.conv3d(v, kernel_x, padding=(0, 0, 1))
+    v_y = F.conv3d(v, kernel_y, padding=(0, 1, 0))
+
+    # 计算二阶空间导数
+    u_xx = F.conv3d(u, kernel_xx, padding=(0, 0, 1))
+    u_yy = F.conv3d(u, kernel_yy, padding=(0, 1, 0))
+    v_xx = F.conv3d(v, kernel_xx, padding=(0, 0, 1))
+    v_yy = F.conv3d(v, kernel_yy, padding=(0, 1, 0))
+
+    # 稳态Burgers方程残差
     residual_u = u * u_x + v * u_y - nu * (u_xx + u_yy)
     residual_v = u * v_x + v * v_y - nu * (v_xx + v_yy)
 
-    # 返回 L2 范数作为残差损失
     return torch.mean(residual_u.pow(2) + residual_v.pow(2))
 
-# def burgers_loss(img_real, img_out, nu=7.704e-5):
-def burgers_loss(img_real, img_out, nu=2.3e-5):
-# def burgers_loss(img_real, img_out, nu=2.16e-5):
 
+def burgers_loss(img_real, img_out, dx=27000, dy=27000, nu=250000.0):
     """
-    基于卷积操作的 Burgers 方程残差计算，用于大规模数据
-    img_real: 真实的风速场数据
-    img_out: 预测的风速场数据
-    nu: 运动粘度
+    Args:
+        img_real: 真实风速场 [batch, 2, time, height, width]
+        img_out: 预测风速场 [batch, 2, time, height, width]
+        dx, dy: 网格间距（米），ERA5 0.25度 ≈ 27km
+        nu: 涡动粘度系数（m²/s）
     """
-    # 计算真实和预测之间的差值
-    difference = img_out - img_real
+    
+    u_out = img_out[:, 0:1, :, :, :]  # [batch, 1, time, height, width]
+    v_out = img_out[:, 1:2, :, :, :]
 
-    # 提取差值中的 u 和 v 分量
-    u_diff = difference[:, 0:1, :, :, :]
-    v_diff = difference[:, 1:2, :, :, :]
+    physics_loss = compute_burgers_residual(u_out, v_out, dx, dy, nu)
 
-    # 计算基于差值的 Burgers 残差
-    residual_loss = compute_burgers_residual(u_diff, v_diff, nu)
+    return physics_loss
 
-    # 返回残差损失
-    return residual_loss
-
-
-class TripletLoss(nn.Module):
-    '''
-    Compute normal triplet loss or soft margin triplet loss given triplets
-    '''
-    def __init__(self, margin=None):
-        super(TripletLoss, self).__init__()
-        self.margin = margin
-        if self.margin is None:  # if no margin assigned, use soft-margin
-            self.Loss = nn.SoftMarginLoss()
-        else:
-            self.Loss = nn.TripletMarginLoss(margin=margin, p=2)
-
-    def forward(self, anchor, pos, neg):
-        if self.margin is None:
-            num_samples = anchor.shape[0]
-            y = torch.ones((num_samples, 1)).view(-1)
-            if anchor.is_cuda: y = y.cuda()
-            ap_dist = torch.norm(anchor-pos, 2, dim=1).view(-1)
-            an_dist = torch.norm(anchor-neg, 2, dim=1).view(-1)
-            loss = self.Loss(an_dist - ap_dist, y)
-        else:
-            loss = self.Loss(anchor, pos, neg)
-
-        return loss
 
 def bce_loss(input, target):
     """
@@ -167,59 +158,38 @@ def toNE(pred_traj,pred_Me):
     pred_Me[:, :, 1] = pred_Me[:, :, 1] * 25 + 40
     return pred_traj,pred_Me
 
+def calculate_haversine(lon1, lat1, lon2, lat2):
+    lon1, lat1, lon2, lat2 = map(lambda x: x * np.pi / 180.0, [lon1, lat1, lon2, lat2])
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    
+    # Haversine 公式
+    a = torch.sin(dlat / 2)**2 + torch.cos(lat1) * torch.cos(lat2) * torch.sin(dlon / 2)**2
+   
+    c = 2 * torch.atan2(torch.sqrt(torch.clamp(a, 0, 1)), torch.sqrt(torch.clamp(1 - a, 0, 1)))
+    
+    return 6371.0 * c
+
 def trajectory_displacement_error(pred_traj, pred_traj_gt, consider_ped=None, mode='sum'):
-    """
-    Input:
-    - pred_traj: Tensor of shape (seq_len, batch, 2). Predicted trajectory.
-    - pred_traj_gt: Tensor of shape (seq_len, batch, 2). Ground truth
-    predictions.
-    - consider_ped: Tensor of shape (batch)
-    - mode: Can be one of sum, raw
-    Output:
-    - loss: gives the eculidian displacement error
-    """
-    seq_len, _, _ = pred_traj.size()
-    loss = pred_traj_gt.permute(1, 0, 2) - pred_traj.permute(1, 0, 2)
-    loss[:,:,0] = (loss[:,:,0]/10)*111*(pred_traj_gt.permute(1, 0, 2)[:,:,1]/10*np.pi/180).cos()
-    # w0 = pred_traj_gt.permute(1, 0, 2)[:,:,1]/10
-    # w = (pred_traj_gt.permute(1, 0, 2)[:,:,1]/10*np.pi/180)
-    # w2 = (pred_traj_gt.permute(1, 0, 2)[:, :, 1] / 10 * np.pi / 180).cos()
-    loss[:, :, 1] = (loss[:, :, 1] / 10) * 111
-    loss = loss**2
-    loss = torch.sqrt(loss[:,:,0]+loss[:,:,1])
-    # if consider_ped is not None:
-    #     loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1) * consider_ped
-    # else:
-    #     loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1)
+
+    lon_p, lat_p = pred_traj.permute(1, 0, 2)[:, :, 0] / 10.0, pred_traj.permute(1, 0, 2)[:, :, 1] / 10.0
+    lon_g, lat_g = pred_traj_gt.permute(1, 0, 2)[:, :, 0] / 10.0, pred_traj_gt.permute(1, 0, 2)[:, :, 1] / 10.0
+
+    loss = calculate_haversine(lon_p, lat_p, lon_g, lat_g)
+
     if mode == 'sum':
         return torch.sum(loss)
     elif mode == 'raw':
         return loss
 
 def trajectory_diff(pred_traj, pred_traj_gt, consider_ped=None, mode='sum'):
-    """
-    Input:
-    - pred_traj: Tensor of shape (seq_len, batch, 2). Predicted trajectory.
-    - pred_traj_gt: Tensor of shape (seq_len, batch, 2). Ground truth
-    predictions.
-    - consider_ped: Tensor of shape (batch)
-    - mode: Can be one of sum, raw
-    Output:
-    - loss: gives the eculidian displacement error
-    """
-    seq_len, _, _ = pred_traj.size()
-    loss = pred_traj.permute(1, 0, 2) - pred_traj_gt.permute(1, 0, 2)
-    loss[:,:,0] = (loss[:,:,0]/10)*111
-    # w0 = pred_traj_gt.permute(1, 0, 2)[:,:,1]/10
-    # w = (pred_traj_gt.permute(1, 0, 2)[:,:,1]/10*np.pi/180)
-    # w2 = (pred_traj_gt.permute(1, 0, 2)[:, :, 1] / 10 * np.pi / 180).cos()
-    loss[:, :, 1] = (loss[:, :, 1] / 10) * 111*(pred_traj_gt.permute(1, 0, 2)[:,:,1]/10*np.pi/180).cos()
-    # loss = loss**2
-    # loss = torch.sqrt(loss[:,:,0]+loss[:,:,1])
-    # if consider_ped is not None:
-    #     loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1) * consider_ped
-    # else:
-    #     loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1)
+    
+    lat_p, lon_p = pred_traj.permute(1, 0, 2)[:, :, 0] / 10.0, pred_traj.permute(1, 0, 2)[:, :, 1] / 10.0
+    lat_g, lon_g = pred_traj_gt.permute(1, 0, 2)[:, :, 0] / 10.0, pred_traj_gt.permute(1, 0, 2)[:, :, 1] / 10.0
+
+    loss = calculate_haversine(lon_p, lat_p, lon_g, lat_g)
+
     if mode == 'sum':
         return torch.sum(loss)
     elif mode == 'raw':
