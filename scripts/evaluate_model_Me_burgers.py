@@ -3,21 +3,25 @@ import os
 import torch
 import copy
 import sys
-import numpy as np
 
-sys.path.append(os.path.abspath(os.path.join(os.getcwd(),'..')))
+# sys.path.append(os.path.abspath(os.path.join(os.getcwd(),'..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'..')))
 
 from attrdict import AttrDict
+
 from dpcnet.data.loader import data_loader
+# from dpcnet.models import TrajectoryGenerator
+# from dpcnet.models_prior_unet_burgers import TrajectoryGenerator
 from dpcnet.models_prior_unet_burgers import TrajectoryGenerator
+# from dpcnet.models_gph_simvp import TrajectoryGenerator
 from dpcnet.losses import displacement_error, final_displacement_error,toNE,trajectory_displacement_error,value_error,trajectory_diff,value_diff
 from dpcnet.utils import relative_to_abs, get_dset_path,dic2cuda
+
 from dpcnet.merge_net_all import Merge_Net_All
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path',default=r'model_save/nu2e4_burgers', type=str)
-
+parser.add_argument('--model_path',default=r'model_save/models', type=str)
 parser.add_argument('--num_samples', default=6, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
@@ -43,6 +47,7 @@ def get_generator(checkpoint):
         grid_size=args.grid_size,
         batch_norm=args.batch_norm,
     )
+    #generator.load_state_dict(checkpoint['g_state'])
     generator.load_state_dict(checkpoint['g_state'], strict=False)
     generator.cuda()
     generator.eval()
@@ -67,8 +72,10 @@ def getmin_helper(error,an,timeanpv, seq_start_end):
         minpoint.append(an[start:end,_error.data.cpu()])
         minpoint_pv.append(timeanpv[start:end,_error.data.cpu()])
 
-    minpoint = torch.stack(minpoint,dim=1).squeeze()
-    minpoint_pv = torch.stack(minpoint_pv,dim=1).squeeze()
+    # minpoint = torch.stack(minpoint,dim=1).squeeze()
+    # minpoint_pv = torch.stack(minpoint_pv,dim=1).squeeze()
+    minpoint = torch.stack(minpoint,dim=1).squeeze(0)
+    minpoint_pv = torch.stack(minpoint_pv,dim=1).squeeze(0)
     return {'tr':minpoint,'pv':minpoint_pv}
 
 def evaluate_helper(error, seq_start_end):
@@ -128,6 +135,13 @@ def evaluate(args, loader, generator, num_samples,sava_path):
             pred_traj_gt_rel = torch.cat([pred_traj_gt_rel, pred_traj_gt_rel_Me], dim=2)
 
 
+            # pred_traj_fake_rel,_,_,_ = generator(
+            #     obs_traj, obs_traj_rel, seq_start_end,image_obs,env_data,
+            #     num_samples=num_samples, all_g_out=False)
+            # pred_traj_fake_rel, _, _, _,_,_ = generator(
+            #     obs_traj, obs_traj_rel, seq_start_end, image_obs,
+            #     u_image_obs, v_image_obs,
+            #     num_samples=num_samples, all_g_out=False)
             pred_traj_fake_rel, _, _, _, _ = generator(
                 obs_traj, obs_traj_rel, seq_start_end, image_obs,
                 u_image_obs, v_image_obs,
@@ -148,7 +162,9 @@ def evaluate(args, loader, generator, num_samples,sava_path):
             # 函数会改变参数变量
             real_pred_traj_gt,real_pred_traj_gt_Me = toNE(copy.deepcopy(pred_traj_gt),copy.deepcopy(pred_traj_gt_Me))
 
-            
+                # ade.append(displacement_error(
+                #     pred_traj_fake, pred_traj_gt, mode='raw'
+                # ))
             for sample_i in range(num_samples):
                 real_pred_traj_fake, real_pred_traj_fake_Me = toNE(pred_traj_fake[:,sample_i].squeeze(0),
                                                                    pred_traj_fake_rel_Me[:,sample_i].squeeze(0))
@@ -165,6 +181,9 @@ def evaluate(args, loader, generator, num_samples,sava_path):
                     real_pred_traj_fake_Me, real_pred_traj_gt_Me, mode='raw'
                 ))
 
+                # fde.append(final_displacement_error(
+                #     pred_traj_fake[-1], pred_traj_gt[-1], mode='raw'
+                # ))
             time_tde_sum = []
             time_ve_sum = []
             time_an_sum = []
@@ -184,7 +203,8 @@ def evaluate(args, loader, generator, num_samples,sava_path):
             for i in range(args.pred_len):
                 timeade = [x[:,i] for x in ve]
                 time_ve_sum.append(ve_evaluate_helper(timeade, seq_start_end))
-          
+            # ade_sum = evaluate_helper(ade, seq_start_end)
+            # fde_sum = evaluate_helper(fde, seq_start_end)
 
             tde_outer.append(time_tde_sum)
             ve_outer.append(time_ve_sum)
@@ -193,7 +213,10 @@ def evaluate(args, loader, generator, num_samples,sava_path):
             ana_outer.append(time_an_sum)
             time_anpv_sum = torch.stack(time_anpv_sum, dim=1)
             pv_outer.append(time_anpv_sum)
-            #
+            # saveana(ana_outer, pv_outer, gt, sava_path)
+            # fde_outer.append(fde_sum)
+       
+        saveana(ana_outer, pv_outer, gt, sava_path)
         tde_outer = torch.tensor(tde_outer)
         ve_outer = torch.tensor(ve_outer)
         ade = torch.sum(tde_outer,dim=0) / (total_traj)
@@ -201,7 +224,7 @@ def evaluate(args, loader, generator, num_samples,sava_path):
         fde = 0
         return ade, ve
 
-
+import numpy as np
 def saveana(ana_outer,ve_outer,gt,sava_path):
     ana_outer = torch.cat(ana_outer, dim=0)
     ana_outer_np = ana_outer.data.cpu().numpy()
@@ -223,26 +246,7 @@ def saveana(ana_outer,ve_outer,gt,sava_path):
     else:
         np.save(pv_path, ve_outer_np)
     np.save(gt_path, gt_np)
-# def saveana(ana_outer,ve_outer,gt):
-#     ana_outer = torch.cat(ana_outer, dim=0)
-#     ana_outer_np = ana_outer.data.cpu().numpy()
-#     ve_outer = torch.cat(ve_outer, dim=0)
-#     ve_outer_np = ve_outer.data.cpu().numpy()
-#     gt = torch.cat(gt, dim=0)
-#     gt_np = gt.data.cpu().numpy()
-#     if os.path.exists('trajectory.npy'):
-#         tra = np.load('trajectory.npy')
-#         np.save('trajectory.npy',(ana_outer_np+tra)/2)
-#     else:
-#         np.save('trajectory.npy', ana_outer_np)
-#     if os.path.exists('pvdif.npy'):
-#         pv = np.load('pvdif.npy')
-#         np.save('pvdif.npy', (ve_outer_np+pv)/2)
-#     else:
-#         np.save('pvdif.npy', ve_outer_np)
-#     np.save('gt.npy', gt_np)
-#
-#     pass
+
 
 def print_log(modelpath,tde,ve,_args,f_path,mode):
     f = open(f_path,mode)
@@ -273,30 +277,32 @@ def main(args):
         paths = [args.model_path]
 
     for path in paths:
-        if 'no_' in path or 'pt' not in path :
-            continue
-        
+
+
+         if 'no_' in path or 'pt' not in path :
+              continue
         modelpath = path
         checkpoint = torch.load(path)
-
+        # print(checkpoint['args'])
         generator = get_generator(checkpoint)
         _args = AttrDict(checkpoint['args'])
         path = get_dset_path(_args.dataset_name, args.dset_type)
         _, loader = data_loader(_args, path)
         tde, ve = evaluate(_args, loader, generator, args.num_samples,sava_path)
         print_log(modelpath,tde,ve,_args,log_file,'a')
-
         if torch.mean(tde).item() < min_error:
             min_error =torch.mean(tde).item()
             print('now_best==================:')
             print_log(modelpath, tde, ve, _args, best_file,'w')
 
 
+
     return tde,ve
 
 
 def seed_torch():
-    seed = 1024 
+
+    seed = 1024
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -318,26 +324,3 @@ if __name__ == '__main__':
             ave+=ve
     print(ated/num,ave/num)
 
-# tensor([ 26.5824,  55.9043,  90.2042, 131.4698, 176.3860, 223.9666, 275.9354,
-#         330.8814]) tensor([[2.0437, 1.0676],
-#         [3.4686, 1.7413],
-#         [4.6360, 2.3311],
-#         [5.6804, 2.9030],
-#         [6.5302, 3.3760],
-#         [7.2055, 3.7640],
-#         [7.6929, 4.0698],
-#         [8.0324, 4.2986]])
-
-# TDR: tensor([24.1299, 47.1854, 70.9537, 99.6390])
-# TDR: tensor([[1.4675, 0.8048],
-#         [2.3847, 1.2670],
-#         [3.1876, 1.7535],
-#         [3.8575, 2.2104]])
-
-# checkpoint_with_model_5100.pt
-# Dataset: 1950_2019, Pred Len: 4
-# TDR: tensor([ 23.9360,  47.1055,  72.3829, 103.1691])
-# TDR: tensor([[1.4391, 0.7826],
-#         [2.3931, 1.3135],
-#         [3.1570, 1.7947],
-#         [3.8620, 2.2161]])
