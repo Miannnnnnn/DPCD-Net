@@ -16,7 +16,7 @@ from dpcnet.merge_net_all import Merge_Net_All
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path',default=r'model_save/nu2.15e_burgers0.12', type=str)
+parser.add_argument('--model_path',default=r'model_save/nu2e4_burgers', type=str)
 
 parser.add_argument('--num_samples', default=6, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
