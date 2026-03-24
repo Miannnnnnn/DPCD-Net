@@ -27,7 +27,6 @@ from dpcnet.models_prior_unet_burgers import TrajectoryGenerator, TrajectoryDisc
 from dpcnet.utils import int_tuple, bool_flag, get_total_norm,to_numpy,dic2cuda
 from dpcnet.utils import relative_to_abs, get_dset_path
 
-
 torch.backends.cudnn.benchmark = True
 
 
