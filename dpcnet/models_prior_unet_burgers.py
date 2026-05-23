@@ -79,20 +79,12 @@ class Encoder(nn.Module):
         # print('obs_traj:',obs_traj.shape)
         batch = obs_traj.size(1)
         inputDim = obs_traj.size(2)
-        # inputDim_date = obs_date_mask.size(2)
         obs_traj_embedding = self.spatial_embedding(obs_traj.reshape(-1, inputDim))
-        # print("obs_traj_embedding:", obs_traj_embedding.shape)
         obs_traj_embedding = obs_traj_embedding.view(
             -1, batch, self.embedding_dim
         )
-        # print("obs_traj_embedding1:", obs_traj_embedding.shape)
 
-        #obs_traj_embedding = obs_traj_embedding+img_embed_input+img_embed_input_u+img_embed_input_v
-        #img_embed_input_merge = self.conv1(img_embed_input_merge)
         obs_traj_embedding = obs_traj_embedding+img_embed_input+img_embed_input_merge
-        # print("img_embed_input:", img_embed_input)
-        # print("img_embed_input_u:", img_embed_input_u)
-        # print("img_embed_input_v:", img_embed_input_v)
         state_tuple = self.init_hidden(batch)
         output, state = self.encoder(obs_traj_embedding, state_tuple)
         #output, state = self.encoder(obs_traj_embedding)
@@ -118,9 +110,6 @@ class Decoder(nn.Module):
         self.embedding_dim = embedding_dim
         self.pool_every_timestep = pool_every_timestep
 
-        # self.decoder = nn.LSTM(
-        #     embedding_dim, h_dim, num_layers, dropout=dropout
-        # )
         self.decoder = sLSTM(
             embedding_dim, h_dim, num_layers, dropout=dropout
         )
@@ -150,10 +139,7 @@ class Decoder(nn.Module):
             torch.zeros(self.num_layers, batch, self.h_dim).cuda(),
             torch.zeros(self.num_layers, batch, self.h_dim).cuda()
         )
-    # def forward(self, obs_traj, obs_traj_rel, last_pos, last_pos_rel, state_tuple,
-    #             seq_start_end,decoder_img,decoder_img_u,decoder_img_v,last_img,last_img_u,last_img_v):
-    # def forward(self, obs_traj, obs_traj_rel, last_pos, last_pos_rel, state_tuple,
-    #             seq_start_end, decoder_img, last_img):
+    
     def forward(self, obs_traj, obs_traj_rel, last_pos, last_pos_rel, state_tuple,
                 seq_start_end, decoder_img, decoder_img_merge, last_img,  last_img_merge):
         """
@@ -177,23 +163,15 @@ class Decoder(nn.Module):
         last_img_merge = last_img_merge.unsqueeze(0)
         decoder_input = decoder_input + last_img + last_img_merge
 
-        # obs_traj_rel_new = obs_traj_rel.clone()
-        # obs_date_mask_new = obs_date_mask.clone()
 
         for i_step in range(self.seq_len):
             output, state_tuple = self.decoder(decoder_input, state_tuple)
-            #output, state_tuple = self.decoder(decoder_input)
             rel_pos = self.hidden2pos(output.view(-1, self.h_dim))
             curr_pos = rel_pos + last_pos
 
             # state_tuple = self.init_hidden(batch)
             rel_pos = rel_pos.unsqueeze(0)
-            # obs_traj_rel_new = torch.cat([obs_traj_rel,rel_pos],dim=0)
-            # obs_date_mask_new = torch.cat([obs_date_mask_new,pred_date_mask[i_step].unsqueeze(0)],dim=0)
-            # state_tuple = self.encoders(obs_traj_rel_new,obs_date_mask_new)
-            # state_tuple = state_tuple['final_h']
-
-            # obs_traj_rel = obs_traj_rel_new[1:]
+           
             # 更新obs_traj_rel
             embedding_input = rel_pos
 
@@ -202,9 +180,6 @@ class Decoder(nn.Module):
             # add img_information
             decoder_img_one = decoder_img[i_step].unsqueeze(0)
             decoder_img_one_merge = decoder_img_merge[i_step].unsqueeze(0)
-            #decoder_img_one_u = decoder_img_u[i_step].unsqueeze(0)
-            #decoder_img_one_v = decoder_img_v[i_step].unsqueeze(0)
-            #decoder_input = decoder_input + decoder_img_one + decoder_img_one_u + decoder_img_one_v
             decoder_input = decoder_input + decoder_img_one + decoder_img_one_merge
 
             pred_traj_fake_rel.append(rel_pos.view(batch, -1))
@@ -251,24 +226,17 @@ class TrajectoryGenerator(nn.Module):
         self.Unet = Unet3D(1,1)
 
         #加入uv处理方式
-        # self.predrnn = Net(32, 1, h_w=[50, 50], n_GPU=1)
         self.img_embedding = nn.Linear(64*64,32)
-        #self.img_embedding_merge = nn.Linear(64*64, 32)
         self.img_embedding_merge = nn.Linear(64*64*2, 32)
         self.img_embedding_u = nn.Linear(64 * 64, 32)
         self.img_embedding_v = nn.Linear(64 * 64, 32)
         self.img_embedding_real = nn.Linear(64 * 64, 32)
-        #self.img_embedding_real_merge = nn.Linear(64 * 64, 32)
         self.img_embedding_real_merge = nn.Linear(64 * 64, 32)
         self.img_embedding_real_u = nn.Linear(64 * 64, 32)
         self.img_embedding_real_v = nn.Linear(64 * 64, 32)
-        ##self.env_net = Env_net()
-        ##self.env_net_chooser = Env_net()
         self.feature2dech_env = nn.Linear(96,64)
         self.feature2dech = nn.Linear(96, 64)
-        #self.merge = Merge_Net()
         self.merge = Merge_Net_All()
-        #self.merge_fc = nn.Linear(64 * 64 * 12, 32)
         self.merge_fc = nn.Linear(64 * 64 * 12 * 2, 32)
         self.conv = nn.Conv3d(in_channels=2, out_channels=1, kernel_size=1, stride=1, padding=0)
 
@@ -288,32 +256,8 @@ class TrajectoryGenerator(nn.Module):
             dropout=dropout
         )
 
-        # self.encoder_env = Encoder(
-        #     embedding_dim=embedding_dim,
-        #     h_dim=encoder_h_dim,
-        #     mlp_dim=mlp_dim,
-        #     num_layers=num_layers,
-        #     dropout=dropout
-        # )
-        # self.decoder = Decoder(
-        #     pred_len,
-        #     embedding_dim=embedding_dim,
-        #     h_dim=decoder_h_dim,
-        #     mlp_dim=mlp_dim,
-        #     num_layers=num_layers,
-        #     pool_every_timestep=pool_every_timestep,
-        #     dropout=dropout,
-        #     bottleneck_dim=bottleneck_dim,
-        #     activation=activation,
-        #     batch_norm=batch_norm,
-        #     pooling_type=pooling_type,
-        #     grid_size=grid_size,
-        #     neighborhood_size=neighborhood_size,
-        #     embeddings_dim=embedding_dim,
-        #     h_dims=encoder_h_dim,
-        # )
         self.gs = nn.ModuleList()
-        # [11-5,6and10,7-9]
+        
         for i in range(num_gs):
             self.gs.append(Decoder(
                 pred_len,
@@ -435,7 +379,7 @@ class TrajectoryGenerator(nn.Module):
             noise_input = mlp_decoder_context_input
         decoder_h = self.add_noise(
             noise_input, seq_start_end, user_noise=user_noise)
-        # decoder_h = torch.unsqueeze(decoder_h, 0)
+        
         decoder_h = decoder_h.view(-1, batch, self.encoder_h_dim)
 
         decoder_c = torch.zeros(
@@ -448,8 +392,6 @@ class TrajectoryGenerator(nn.Module):
         state_tuple = (decoder_h, decoder_c, decoder_n)
         return state_tuple
 
-    # def forward(self, obs_traj, obs_traj_rel, seq_start_end,image_obs,image_obs_u,image_obs_v,
-    #             num_samples=1,all_g_out=False,predrnn_img=None,user_noise=None):
     def forward(self, obs_traj, obs_traj_rel, seq_start_end, image_obs, image_obs_u, image_obs_v,
                 num_samples=1, all_g_out=False, predrnn_img=None, user_noise=None):
         """
@@ -476,28 +418,20 @@ class TrajectoryGenerator(nn.Module):
         img_input_real_merge = image_obs_merge.view(batch, self.obs_len, -1) # [b,8,64 * 64 * 2]
         encoder_img_real_merge = self.img_embedding_real_merge(img_input_real_merge).permute(1, 0, 2)
 
-        ##final_encoder_env = self.encoder_env(obs_traj_rel, encoder_img_real)
-        #final_encoder_env = self.encoder(obs_traj_rel, encoder_img_real)
+        
         final_encoder_env = self.encoder_merge(obs_traj_rel, encoder_img_real, encoder_img_real_merge)
         final_encoder_env_h = final_encoder_env['final_h'][0] # final_encoder_env['final_h'] [1,b,64] = [1,64,64]
-        # #evn_feature_chooser,traj_score,inte_score = self.env_net_chooser(env_data,image_obs[:,:,-1])
-        # #dec_h_evn = self.feature2dech_env(torch.cat([final_encoder_env_h.squeeze(),evn_feature_chooser],dim=1)).unsqueeze(0)
-        #####对于uv的处理方式可以像EnvNet一样，先单独处理uv再和gph的隐藏状态cat后通过线性层
-        #image_merge = self.merge(image_obs_u, image_obs_v) #[b,12,h,w]
+       
+        #对于uv的处理方式可以像EnvNet一样，先单独处理uv再和gph的隐藏状态cat后通过线性层
         image_merge = self.merge(image_obs_u, image_obs_v) #[b,12,h,w]
-        #image_merge_dec_h = image_merge.view(batch, -1) #[batch, 64 * 64 * 12]
         image_merge_dec_h = image_merge.reshape(batch, -1) #[batch, 64 * 64 * 12]
         image_merge_dec_h = self.merge_fc(image_merge_dec_h) #[batch, 64]
-        #dec_h_evn = final_encoder_env_h.squeeze(0).unsqueeze(0)
         dec_h_evn = self.feature2dech_env(torch.cat([final_encoder_env_h.squeeze(0),image_merge_dec_h.squeeze(1)],dim=1)).unsqueeze(0)
 
 
         # for generator
         predrnnn_out = self.Unet(image_obs)
-        # first_img = image_obs[:,:,0].unsqueeze(2)
-        # all_img = torch.cat([first_img,predrnnn_out],dim=2)
         all_img = predrnnn_out
-        #all_img_merge = image_merge.unsqueeze(1)
         all_img_merge = image_merge
         img_input = all_img.view(batch, 12, -1)
         img_input_merge = image_merge.reshape(batch, 12, -1)
@@ -507,37 +441,21 @@ class TrajectoryGenerator(nn.Module):
         encoder_img_merge = img_embed_input_merge[:obs_len]
 
 
-        #final_encoder = self.encoder(obs_traj_rel, encoder_img)
         final_encoder = self.encoder(obs_traj_rel, encoder_img, encoder_img_merge)
-        #final_encoder = self.encoder(obs_traj_rel, encoder_img,encoder_img_u,encoder_img_v)
         final_encoder_h = final_encoder['final_h'][0]
-        # evn_feature, traj_score, inte_score = self.env_net(env_data, image_obs[:, :, -1])
-        # #dec_h = self.feature2dech(torch.cat([final_encoder_h.squeeze(), evn_feature_chooser], dim=1)).unsqueeze(0)
-        # #dec_h = self.feature2dech(final_encoder_h.squeeze()).unsqueeze(0)
         dec_h = final_encoder_h.squeeze(0).unsqueeze(0)
         # Encode seq
-
-        # output = final_encoder['output']
-
         image_out = all_img
         image_out_merge = all_img_merge
-        # image_out_u = all_img_u
-        # image_out_v = all_img_v
 
-        # 加个残差
-        # final_encoder_h = unet_out['fusion_feature']+final_encoder_h
-        # Pool States
+        
         if all_g_out:
             last_pos = obs_traj[-1]
             last_pos_rel = obs_traj_rel[-1]
             decoder_img = img_embed_input[obs_len:]
             decoder_img_merge = img_embed_input_merge[obs_len:]
-            # decoder_img_u = img_embed_input_u[obs_len:]
-            # decoder_img_v = img_embed_input_v[obs_len:]
             last_img = img_embed_input[obs_len - 1]
             last_img_merge = img_embed_input_merge[obs_len - 1]
-            # last_img_u = img_embed_input_u[obs_len - 1]
-            # last_img_v = img_embed_input_v[obs_len - 1]
             preds_rel = []
             with torch.no_grad():
                 state_tuple = self.mix_noise(dec_h, seq_start_end, batch)
@@ -584,12 +502,10 @@ class TrajectoryGenerator(nn.Module):
                     last_pos_rel = obs_traj_rel[-1, now_data_index]
                     decoder_img = img_embed_input[obs_len:, now_data_index]
                     decoder_img_merge = img_embed_input_merge[obs_len:, now_data_index]
-                    #decoder_img_u = img_embed_input_u[obs_len:, now_data_index]
-                    #decoder_img_v = img_embed_input_v[obs_len:, now_data_index]
+                   
                     last_img = img_embed_input[obs_len - 1, now_data_index]
                     last_img_merge = img_embed_input_merge[obs_len - 1, now_data_index]
-                    #last_img_u = img_embed_input_u[obs_len - 1, now_data_index]
-                    #last_img_v = img_embed_input_v[obs_len - 1, now_data_index]
+                    
                     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     state_tuple = self.mix_noise(dec_h[:,now_data_index], seq_start_end[now_data_index], np.sum(now_data_index))
                     # the method of sampling is not same as the MG-GAN!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -615,7 +531,6 @@ class TrajectoryGenerator(nn.Module):
                 preds_rel.append(pred_traj_fake_rel_reverse.reshape(self.pred_len, 1, batch, 4))
             pred_traj_fake_rel_nums = torch.cat(preds_rel, dim=1)
             # [predlen,num_samples,batch,4]
-            # pred_traj_fake_rel_list.append(pred_traj_fake_rel)
 
         return pred_traj_fake_rel_nums,image_out,image_out_merge,net_chooser_out, sampled_gen_idxs
 
@@ -636,7 +551,6 @@ class TrajectoryDiscriminator(nn.Module):
         self.d_type = d_type
 
         self.img_embedding = nn.Linear(64 * 64, 32)
-        #self.img_embedding_merge = nn.Linear(64 * 64, 32)
         self.img_embedding_merge = nn.Linear(64 * 64 *2, 32)
         self.encoder = Encoder(
             embedding_dim=embedding_dim,
@@ -658,7 +572,6 @@ class TrajectoryDiscriminator(nn.Module):
             mlp_pool_dims = [h_dim + embedding_dim, mlp_dim, h_dim]
             pass
 
-    #def forward(self, traj, traj_rel, seq_start_end,img,img_u,img_v):
     def forward(self, traj, traj_rel, seq_start_end, img, img_merge):
         """
         Inputs:
