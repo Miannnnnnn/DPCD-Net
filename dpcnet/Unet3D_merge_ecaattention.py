@@ -166,12 +166,8 @@ class OutConv(nn.Module):
         x8 = self.conv3d_x8(x8)  
 
         x_last = torch.cat([x6, x7, x8, x9], dim=2)
-        # print("x_last:", x_last.shape)
-        # x_last = self.out(x_last)
         x_last = self.conv(x_last)
-        # print("x_last:", x_last.shape)
         x_last = self.eca_attention(x_last)
-        # return self.conv(x_last)
         return x_last
 
 
@@ -190,8 +186,6 @@ class Unet3D(nn.Module):
         self.up3 = Up(32, 32, 16, kernel_size=[1, 2, 2], stride=[1, 2, 2], padding=0)
         self.up4 = Up(16, 16, 16, kernel_size=[1, 2, 2], stride=[1, 2, 2], padding=0)
 
-        # self.outc = OutConv([64, 32, 16, 16], out_channel, kernel_size=[18, 1, 1], stride=[1, 1, 1], padding=0)
-        # self.outc = OutConv([64, 32, 16, 16], out_channel, kernel_size=[17, 1, 1], stride=[1, 1, 1], padding=0)
         self.outc = OutConv(out_channel, kernel_size=[17, 1, 1], stride=[1, 1, 1], padding=0)
 
     def forward(self, x):
